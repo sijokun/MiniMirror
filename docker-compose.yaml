@@ -1,0 +1,14 @@
+version: '3'
+
+services:
+  mini-mirror:
+    build: ./
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      TARGET_DOMAIN: ''
+      SECONDARY_DOMAINS: ''
+    logging:
+      options:
+        max-size: 50m
