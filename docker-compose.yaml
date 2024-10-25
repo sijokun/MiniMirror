@@ -1,14 +1,13 @@
 version: '3'
 
 services:
-  mini-mirror:
+  ton-mirror:
     build: ./
     restart: always
     ports:
       - "3000:3000"
     environment:
-      TARGET_DOMAIN: ''
-      SECONDARY_DOMAINS: ''
+      CONFIG: '{"127.0.0.1:3000": { "domain": "https://example.com", "target": "https://example.com","secondary_domains": ["https://something.example.com"]}}'
     logging:
       options:
         max-size: 50m

@@ -1,17 +1,30 @@
-# MiniMirror
-Simple and lightweight go lang microservice to create mirror of a website to bypass censorship.
+# TonMirror
+Simple and lightweight Go microservice to mirror a website.
 
-Now only get requests are supported, we plan to add other types, but can't guarantee anything :) 
 ## Dev
 
-`TARGET_DOMAIN=https://example.com SECONDARY_DOMAINS=https://s3.example.com go run MiniMirror`
+`go run TonMirror`
 
 ## Production
 
 `go build`
 
-`TARGET_DOMAIN=https://example.com SECONDARY_DOMAINS=https://s3.example.com ./MiniMirror`
+`./MiniMirror`
 
 
 ## Production in Docker
-`docker run -it -p 3000:3000 -e TARGET_DOMAIN=https://example.com -e SECONDARY_DOMAINS=https://s3.example.com  $(docker build -q .)`
+`docker run -it -p 3000:3000 $(docker build -q .)`
+
+## Configuration 
+Configuration is set via CONFIG env variable, config is in JSON format.
+
+### Example config
+```json
+{
+  "127.0.0.1:3000": { 
+    "domain": "https://example.com", 
+    "target": "https://example.com",
+    "secondary_domains": ["https://something.example.com"]
+  }
+}
+```
