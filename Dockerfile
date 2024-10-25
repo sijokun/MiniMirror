@@ -11,10 +11,10 @@ COPY . .
 RUN go get -d -v ./...
 
 # Build the Go app
-RUN go build -o TonMirror .
+RUN go build -o MiniMirror .
 
 #EXPOSE the port
 EXPOSE 3000
 
 # Run the executable
-CMD ["./TonMirror"]
+CMD ["./MiniMirror"]

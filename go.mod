@@ -1,4 +1,4 @@
-module TonMirror
+module MiniMirror
 
 go 1.20
 

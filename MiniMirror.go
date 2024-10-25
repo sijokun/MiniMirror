@@ -13,24 +13,25 @@ import (
 	"strings"
 )
 
-type TargetInfo struct {
-	Domain           string   `json:"domain"`
-	Target           string   `json:"target"`
-	SecondaryDomains []string `json:"secondary_domains"`
+type replaceItem struct {
+	Old string `json:"old"`
+	New string `json:"new"`
 }
 
 var (
-	config       map[string]TargetInfo
-	configString = os.Getenv("CONFIG")
-	port         = os.Getenv("PORT")
-	hostHeader   = os.Getenv("HOST_HEADER")
+	TargetDomain       = os.Getenv("TARGET_DOMAIN")
+	TargetEndpoint     = os.Getenv("TARGET_ENDPOINT")
+	SecondaryDomains   = strings.Split(os.Getenv("SECONDARY_DOMAINS"), ";")
+	port               = os.Getenv("PORT")
+	ReplaceItemsString = os.Getenv("REPLACE")
+	ReplaceItems       []replaceItem
 )
 
 var errorLog = log.New(os.Stderr, "", 0)
 
 const MaxRetry = 3
 
-func mirrorUrl(url string, c *fiber.Ctx, retry int8, conf TargetInfo) error {
+func mirrorUrl(url string, c *fiber.Ctx, retry int8) error {
 	log.Printf("mirroring %s", url)
 	reqBodyBuffer := bytes.NewBuffer(c.Body())
 
@@ -49,15 +50,35 @@ func mirrorUrl(url string, c *fiber.Ctx, retry int8, conf TargetInfo) error {
 			headersString += fmt.Sprintf("\t%s: %s\r\n", k, vv)
 			switch k {
 			case
+				"If-None-Match",
+				"If-Modified-Since",
+				"If-Range",
+				"X-Cloud-Trace-Context",
+				"X-Forwarded-Proto",
+				"X-Forwarded-For",
+				"Forwarded",
+				"Sec-Ch-Ua-Platform:",
+				"Sec-Ch-Ua",
+				"Sec-Ch-Ua-Mobile",
+				"Sec-Fetch-Site",
+				"Sec-Fetch-Mode",
+				"Sec-Fetch-Dest",
+				"Priority",
+				"Accept-Encoding":
+				continue
+			}
+			switch k {
+			case
 				"Host",
 				"Accept",
 				"User-Agent",
 				"Accept-Language":
 				req.Header.Add(k, vv)
 			}
+			//req.Header.Add(k, vv)
 		}
 	}
-	req.Header.Add("TON_MIRROR", "TRUE")
+	req.Header.Add("MINIMIRROR", "TRUE")
 
 	// Copy query params
 	q := req.URL.Query()
@@ -76,7 +97,7 @@ func mirrorUrl(url string, c *fiber.Ctx, retry int8, conf TargetInfo) error {
 		if retry < MaxRetry {
 			log.Printf(err.Error())
 			log.Printf("retrying to mirror %s", url)
-			return mirrorUrl(url, c, retry+1, conf)
+			return mirrorUrl(url, c, retry+1)
 		}
 		errorLog.Printf("Failed after %d retries, returning error", retry)
 		errorLog.Println(err.Error())
@@ -86,7 +107,7 @@ func mirrorUrl(url string, c *fiber.Ctx, retry int8, conf TargetInfo) error {
 	// Retry if server error
 	if resp.StatusCode >= 500 && resp.StatusCode < 600 && retry < MaxRetry {
 		log.Printf("Status code %d, retrying to mirror %s", resp.StatusCode, url)
-		return mirrorUrl(url, c, retry+1, conf)
+		return mirrorUrl(url, c, retry+1)
 	}
 	if retry >= MaxRetry {
 		log.Printf("Max retry number reached, returning %d", resp.StatusCode)
@@ -111,19 +132,19 @@ func mirrorUrl(url string, c *fiber.Ctx, retry int8, conf TargetInfo) error {
 		return c.Status(fiber.StatusInternalServerError).SendStatus(fiber.StatusInternalServerError)
 	}
 
-	//// Replace preset strings
-	//if len(ReplaceItems) > 0 {
-	//	for _, item := range ReplaceItems {
-	//		body = []byte(strings.ReplaceAll(string(body), item.Old, item.New))
-	//	}
-	//}
+	// Replace preset strings
+	if len(ReplaceItems) > 0 {
+		for _, item := range ReplaceItems {
+			body = []byte(strings.ReplaceAll(string(body), item.Old, item.New))
+		}
+	}
 
 	// Replace domain with relative link
-	body = []byte(strings.ReplaceAll(string(body), conf.Domain+"/", "/"))
+	body = []byte(strings.ReplaceAll(string(body), TargetDomain+"/", "/"))
 
 	// Replace secondary domains if there are any with proxy link
-	if len(conf.SecondaryDomains) > 0 {
-		for _, secDomain := range conf.SecondaryDomains {
+	if len(SecondaryDomains) > 0 && !(SecondaryDomains[0] == "") {
+		for _, secDomain := range SecondaryDomains {
 			body = []byte(strings.ReplaceAll(string(body), secDomain, "/_EXTERNAL_?EXTERNAL_URL="+secDomain))
 		}
 	}
@@ -134,25 +155,17 @@ func mirrorUrl(url string, c *fiber.Ctx, retry int8, conf TargetInfo) error {
 func handleInternalRequest(c *fiber.Ctx) error {
 	// Form new URL
 	newURL := c.Path()
-
-	host := c.GetReqHeaders()[hostHeader]
-	if len(host) == 0 {
-		return c.Status(400).Send([]byte("Host header is not set"))
+	if TargetEndpoint != "" {
+		newURL = TargetEndpoint + newURL
+	} else {
+		newURL = TargetDomain + newURL
 	}
 
-	conf, ok := config[host[0]]
-	if !ok {
-		log.Printf("Config for host %s not found", host[0])
-		return c.Status(404).Send([]byte("Host config not found"))
-	}
-
-	newURL = conf.Target + newURL
-
-	return mirrorUrl(newURL, c, 0, config["sota.ton"])
+	return mirrorUrl(newURL, c, 0)
 }
 
 func handleExternalRequest(c *fiber.Ctx) error {
-	return mirrorUrl(c.Query("EXTERNAL_URL"), c, 0, config["sota.ton"])
+	return mirrorUrl(c.Query("EXTERNAL_URL"), c, 0)
 }
 
 func main() {
@@ -160,19 +173,11 @@ func main() {
 		port = "3000"
 	}
 
-	// Config
-	if configString != "" {
-		err := json.Unmarshal([]byte(configString), &config)
+	if ReplaceItemsString != "" {
+		err := json.Unmarshal([]byte(ReplaceItemsString), &ReplaceItems)
 		if err != nil {
-			log.Fatal("Error during Unmarshal() of config: ", err)
+			log.Fatal("Error during Unmarshal() of REPLACE: ", err)
 		}
-	} else {
-		log.Fatal("Config is required")
-	}
-
-	// Default host header
-	if hostHeader == "" {
-		hostHeader = "Host"
 	}
 
 	app := fiber.New()
